@@ -49,13 +49,18 @@ make deb-native  # .deb with plain dpkg-deb, no nfpm needed
 
 ### Releasing
 
-Push a version tag and GitHub Actions does the rest. It builds for x86_64
-and arm64, test-installs the packages on Debian, Ubuntu, Rocky and Fedora, and
-publishes the release:
+Bump the version in `VERSION` and push to `main`:
 
 ```sh
-git tag v0.1.5 && git push origin v0.1.5
+echo 0.1.5 > VERSION
+git commit -am "Release 0.1.5" && git push
 ```
+
+GitHub Actions then builds for x86_64 and arm64 and test-installs the
+packages on Debian, Ubuntu, Rocky and Fedora. If those pass, it creates the
+`v0.1.5` tag and publishes the release. Pushing a matching `v0.1.5` tag
+yourself, or using "Run workflow" on the Release action, does the same.
+Versions that already have a release are skipped.
 
 ### One desktop setting matters
 

@@ -1,11 +1,21 @@
-# Pushing a tag like v0.1.4 builds drift for x86_64 and arm64, packages it as
-# .deb, .rpm and .tar.gz, test-installs the packages on Debian, Ubuntu, Rocky
-# and Fedora, and publishes a GitHub release with everything attached.
+# Builds drift for x86_64 and arm64, packages it as .deb, .rpm and .tar.gz,
+# test-installs the packages on Debian, Ubuntu, Rocky and Fedora, and
+# publishes a GitHub release (creating the v<version> tag) with everything
+# attached.
+#
+# Triggers:
+#   - a push to main that changes VERSION   (bump the file, push, done)
+#   - pushing a tag like v0.1.5 by hand     (must match VERSION)
+#   - "Run workflow" in the Actions tab
+# A version that already has a release is skipped, never overwritten.
 name: Release
 
 on:
   push:
+    branches: [main]
+    paths: [VERSION]
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,8 +25,39 @@ env:
   NFPM_VERSION: v2.41.1
 
 jobs:
+  prepare:
+    name: Decide version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(tr -d ' \n' < VERSION)
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($version)"
+            exit 1
+          fi
+          release=true
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::release $tag already exists; nothing to do"
+            release=false
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.arch }})
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
     strategy:
       matrix:
         include:
@@ -47,8 +88,8 @@ jobs:
       - name: Build and package
         env:
           DRIFT_ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           make build VERSION="$VERSION"
           ./bin/drift version
 
@@ -114,7 +155,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: verify
+    needs: [prepare, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -131,27 +172,30 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cat > notes.md <<NOTES
           ## Install
 
           **Debian / Ubuntu / Kubuntu**
           \`\`\`sh
-          sudo apt install ./drift_${GITHUB_REF_NAME#v}_amd64.deb
+          sudo apt install ./drift_${VERSION}_amd64.deb
           systemctl --user enable --now drift
           \`\`\`
 
           **RHEL / Rocky / Fedora**
           \`\`\`sh
-          sudo dnf install ./drift-${GITHUB_REF_NAME#v}-1.x86_64.rpm
+          sudo dnf install ./drift-${VERSION}-1.x86_64.rpm
           systemctl --user enable --now drift
           \`\`\`
 
           ARM64 builds (\`arm64\` / \`aarch64\`) and plain tarballs are attached too.
           Install \`mpv\` if you want video savers. See the README for configuration.
           NOTES
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "drift $GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "drift $TAG" \
             --notes-file notes.md \
             --generate-notes

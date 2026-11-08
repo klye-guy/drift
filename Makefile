@@ -1,5 +1,5 @@
-# Version comes from the latest git tag (v0.1.4 -> 0.1.4); override with VERSION=...
-VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always 2>/dev/null || echo 0.0.0))
+# The release version lives in the VERSION file; override with VERSION=...
+VERSION ?= $(shell cat VERSION 2>/dev/null || echo 0.0.0)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 # Let go fill in any go.sum entries missing for this platform.
