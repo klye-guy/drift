@@ -1,0 +1,65 @@
+# Build packages with:  make deb   /   make rpm   (needs nfpm: https://nfpm.goreleaser.com)
+name: drift
+arch: ${DRIFT_ARCH}
+platform: linux
+version: ${DRIFT_VERSION}
+section: x11
+priority: optional
+maintainer: Kyle <noreply@archavist.com>
+description: |
+  Moving screensavers for OLED burn-in protection on GNOME and KDE.
+  Classic-style animated savers (polygon trails, pipes, starfield, ribbons,
+  marquee), your own images as moving sprites, and looped videos via mpv.
+  Works on Wayland and X11.
+vendor: archavist
+homepage: https://github.com/klye-guy/drift
+license: MIT
+
+contents:
+  - src: bin/drift
+    dst: /usr/bin/drift
+  - src: bin/drift-render
+    dst: /usr/bin/drift-render
+  - src: packaging/drift.service
+    dst: /usr/lib/systemd/user/drift.service
+  - src: cmd/drift/drift.conf.example
+    dst: /etc/drift/drift.conf
+    type: config|noreplace
+  - src: examples/savers/*
+    dst: /usr/share/doc/drift/examples/savers/
+  - src: README.md
+    dst: /usr/share/doc/drift/README.md
+  - src: LICENSE
+    dst: /usr/share/doc/drift/LICENSE
+  - dst: /usr/share/drift/savers
+    type: dir
+
+scripts:
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh
+
+overrides:
+  deb:
+    depends:
+      - libc6
+      - libgl1
+      - libx11-6
+      - libxrandr2
+      - libxcursor1
+      - libxinerama1
+      - libxi6
+      - libxxf86vm1
+    recommends:
+      - mpv
+  rpm:
+    depends:
+      - glibc
+      - libglvnd-glx
+      - libX11
+      - libXrandr
+      - libXcursor
+      - libXinerama
+      - libXi
+      - libXxf86vm
+    recommends:
+      - mpv

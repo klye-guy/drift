@@ -1,0 +1,16 @@
+[Unit]
+Description=drift — moving screensavers for OLED burn-in protection
+Documentation=file:///usr/share/doc/drift/README.md
+PartOf=graphical-session.target
+After=graphical-session.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/drift daemon
+Restart=on-failure
+RestartSec=5
+# The daemon itself is tiny; renderers it launches inherit this slice.
+Slice=app.slice
+
+[Install]
+WantedBy=graphical-session.target

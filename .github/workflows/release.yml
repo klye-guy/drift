@@ -1,0 +1,157 @@
+# Pushing a tag like v0.1.4 builds drift for x86_64 and arm64, packages it as
+# .deb, .rpm and .tar.gz, test-installs the packages on Debian, Ubuntu, Rocky
+# and Fedora, and publishes a GitHub release with everything attached.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=mod
+  NFPM_VERSION: v2.41.1
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          # Ubuntu 22.04 builders keep the glibc requirement low enough for
+          # RHEL/Rocky 9 and Debian 12.
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxcursor-dev \
+            libxinerama-dev libxi-dev libxxf86vm-dev
+
+      - name: Install nfpm
+        run: GOFLAGS= go install github.com/goreleaser/nfpm/v2/cmd/nfpm@${NFPM_VERSION}
+
+      - name: Build and package
+        env:
+          DRIFT_ARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          make build VERSION="$VERSION"
+          ./bin/drift version
+
+          mkdir -p dist
+          DRIFT_VERSION="$VERSION" nfpm package -p deb -t dist/
+          DRIFT_VERSION="$VERSION" nfpm package -p rpm -t dist/
+
+          name="drift_${VERSION}_linux_${{ matrix.arch }}"
+          mkdir -p "stage/$name"
+          cp bin/drift bin/drift-render README.md LICENSE "stage/$name/"
+          cp packaging/drift.service "stage/$name/"
+          cp cmd/drift/drift.conf.example "stage/$name/drift.conf"
+          cp -r examples "stage/$name/"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+          ls -l dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  verify:
+    name: Install on ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            kind: deb
+          - image: ubuntu:24.04
+            kind: deb
+          - image: rockylinux:9
+            kind: rpm
+          - image: fedora:latest
+            kind: rpm
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-amd64
+          path: dist
+
+      - name: Install package
+        run: |
+          if [ "${{ matrix.kind }}" = deb ]; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ./dist/*.deb
+          else
+            dnf install -y --setopt=install_weak_deps=False ./dist/*.rpm
+          fi
+
+      - name: Check binaries
+        run: |
+          drift version
+          drift paths
+          missing=$(ldd /usr/bin/drift-render | grep "not found" || true)
+          if [ -n "$missing" ]; then echo "$missing"; exit 1; fi
+          test -f /usr/lib/systemd/user/drift.service
+          test -f /etc/drift/drift.conf
+
+  release:
+    name: Publish release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<NOTES
+          ## Install
+
+          **Debian / Ubuntu / Kubuntu**
+          \`\`\`sh
+          sudo apt install ./drift_${GITHUB_REF_NAME#v}_amd64.deb
+          systemctl --user enable --now drift
+          \`\`\`
+
+          **RHEL / Rocky / Fedora**
+          \`\`\`sh
+          sudo dnf install ./drift-${GITHUB_REF_NAME#v}-1.x86_64.rpm
+          systemctl --user enable --now drift
+          \`\`\`
+
+          ARM64 builds (\`arm64\` / \`aarch64\`) and plain tarballs are attached too.
+          Install \`mpv\` if you want video savers. See the README for configuration.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "drift $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=mod
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxcursor-dev \
+            libxinerama-dev libxi-dev libxxf86vm-dev \
+            xvfb libgl1-mesa-dri
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: make test
+
+      - name: Build
+        run: make build
+
+      # Render a frame of every built-in saver under a virtual display, so a
+      # saver that crashes on startup fails CI.
+      - name: Render smoke test
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          mkdir -p snapshots
+          for s in mystify pipes starfield ribbons rain marquee; do
+            xvfb-run -a -s "-screen 0 1280x720x24" ./bin/drift snapshot "$s" "snapshots/$s.png" 3
+            test -s "snapshots/$s.png"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshots
+          path: snapshots/

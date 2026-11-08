@@ -1,0 +1,64 @@
+# drift.conf — ~/.config/drift/drift.conf (or /etc/drift/drift.conf)
+#
+# After editing:  systemctl --user restart drift
+
+# Minutes without input before a saver starts. Set your desktop's own
+# "turn off screen" timer LONGER than this so drift gets to run first.
+idle_minutes = 5
+
+# Which savers to use: "all", or a comma list of names from `drift list`.
+savers = all
+
+# random | sequence
+order = random
+
+# Switch to the next saver after this many minutes (0 = never switch).
+# Different savers light different pixels, so rotating spreads the wear.
+switch_minutes = 15
+
+# all | primary | comma list of monitor numbers (0 = primary)
+monitors = all
+
+# Dim everything drift draws (0.1–1.0). Lower = less OLED wear.
+brightness = 0.85
+
+# Frame cap (0 = follow the display's refresh rate). 30 saves power.
+max_fps = 0
+
+# auto | mutter (GNOME) | wayland (KDE/wlroots) | x11
+idle_backend = auto
+
+# Player used for video savers
+mpv = mpv
+
+# ---------------------------------------------------------------------------
+# Per-kind defaults. These apply to the built-in saver of that name and to
+# any .conf file that uses that kind. All options are listed in `drift kinds`
+# and at the top of each saver's source file.
+
+[mystify]
+polygons = 2
+vertices = 4
+echoes   = 6
+
+[ribbons]
+curves = 3
+trail  = 0.25
+
+[starfield]
+stars   = 600
+streaks = true
+
+[pipes]
+pipes = 4
+rate  = 14
+
+[rain]
+size    = 20
+hue     = 130      # 130 green, 190 cyan, 30 amber, 300 magenta
+density = 0.6
+rainbow = false
+
+[marquee]
+text = drift
+size = 96
